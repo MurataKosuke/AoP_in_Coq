@@ -159,71 +159,6 @@ Class Functor (F : Type -> Type)
         Fhom A C (g ∘ f) = (Fhom B C g ∘ Fhom A B f)
   }.
 
-Inductive Polynominal_Functor :=
-| Top              : Polynominal_Functor
-| Var              : Polynominal_Functor
-| Const (A : Type) : Polynominal_Functor
-| Product          : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor
-| CoProduct        : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor.
-
-Fixpoint Eval_PF (FABS : Polynominal_Functor) (X : Type) : Type :=
-  match FABS with
-  | Top => 1
-  | Var => X
-  | Const A => A
-  | Product F G => Eval_PF F X × Eval_PF G X
-  | CoProduct F G => @Either (Eval_PF F X) (Eval_PF G X)
-  end.
-
-Fixpoint PFhom (F : Polynominal_Functor) {A B : Type} (f : A -> B) : Eval_PF F A ->  Eval_PF F B :=
-  match F with
-  | Top             => (@id 1)
-  | Var             => f
-  | Const C         => (@id C)
-  | Product F' G'   => Pairf ((@PFhom F' A B f) ∘ outl) ((@PFhom G' A B f) ∘ outr)
-  | CoProduct F' G' => (Eitherf (fun x => @inl (Eval_PF F' B) (Eval_PF G' B) (@PFhom F' A B f x))
-                                (fun x => @inr (Eval_PF F' B) (Eval_PF G' B) (@PFhom G' A B f x)))
-                       : Eval_PF (CoProduct F' G') A -> Eval_PF (CoProduct F' G') B
-  end.
-
-Coercion Eval_PF : Polynominal_Functor >-> Funclass.
-
-Instance PF_is_exact_Funcotr :
-  forall PF : Polynominal_Functor, (Functor (Eval_PF PF) (@PFhom PF)) := {}.
-Proof.
-  - intros A.
-    induction PF.
-    + easy.
-    + easy.
-    + easy.
-    + simpl.
-      rewrite IHPF1.
-      rewrite IHPF2.
-      repeat rewrite id_is_left_identity.
-      apply pair_id.
-    + simpl.
-      rewrite IHPF1.
-      rewrite IHPF2.
-      extensionality x.
-      rewrite coprod_id;easy.
-  - intros A B C f g.
-    induction PF.
-    + easy.
-    + easy.
-    + easy.
-    + simpl.
-      rewrite IHPF1; rewrite IHPF2.
-      extensionality x.
-      induction x.
-      easy.
-    + simpl.
-      rewrite IHPF1; rewrite IHPF2.
-      extensionality x.
-      induction x.
-      * easy.
-      * easy.
-Qed.
-
 Notation "F [ f ]" := (@Fmap F _ _ _ _ f) (at level 10).
 
 Hint Resolve Fhom_identity.
@@ -612,105 +547,70 @@ Section Tree.
   Qed.
 End Tree.
 
+(* Under Constructions *)
 
 
+Inductive Polynominal_Functor :=
+| Top              : Polynominal_Functor
+| Var              : Polynominal_Functor
+| Const (A : Type) : Polynominal_Functor
+| Product          : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor
+| CoProduct        : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor.
 
+Fixpoint Eval_PF (FABS : Polynominal_Functor) (X : Type) : Type :=
+  match FABS with
+  | Top => 1
+  | Var => X
+  | Const A => A
+  | Product F G => Eval_PF F X × Eval_PF G X
+  | CoProduct F G => @Either (Eval_PF F X) (Eval_PF G X)
+  end.
 
-Variable A : Type.
+Fixpoint PFhom (F : Polynominal_Functor) {A B : Type} (f : A -> B) : Eval_PF F A ->  Eval_PF F B :=
+  match F with
+  | Top             => (@id 1)
+  | Var             => f
+  | Const C         => (@id C)
+  | Product F' G'   => Pairf ((@PFhom F' A B f) ∘ outl) ((@PFhom G' A B f) ∘ outr)
+  | CoProduct F' G' => (Eitherf (fun x => @inl (Eval_PF F' B) (Eval_PF G' B) (@PFhom F' A B f x))
+                                (fun x => @inr (Eval_PF F' B) (Eval_PF G' B) (@PFhom G' A B f x)))
+                       : Eval_PF (CoProduct F' G') A -> Eval_PF (CoProduct F' G') B
+  end.
 
-Definition F_listA (X : Type) := 1 + (A × X).
+Coercion Eval_PF : Polynominal_Functor >-> Funclass.
 
-Definition listA_hom {X Y : Type} (f : X -> Y) (x : F_listA X)
-  := match x with
-     | inl $¥bullet$  => inl $¥bullet$
-     | inr x' => inr (outl x', f (outr x'))
-     end.
-
-Instance listA_functor : Functor F_listA (@listA_hom) :=
-  {}.
+Instance PF_is_exact_Funcotr :
+  forall PF : Polynominal_Functor, (Functor (Eval_PF PF) (@PFhom PF)) := {}.
 Proof.
-  - intros A0.
-    extensionality x.
-    induction x.
-    + induction a.
-      easy.
-    + induction b.
-      easy.
-  - intros A0 B C f g.
-    extensionality x.
-    induction x.
-    + induction a.
-      easy.
+  - intros A.
+    induction PF.
     + easy.
-Qed.
-
-Definition listA_eval :=
-  fun (x : F_listA (list A)) =>
-    match x with
-    | inl $¥bullet$  => []
-    | inr x' => (outl x') :: (outr x')
-    end.
-
-Definition listA_cata {X : Type} (f : F_listA X -> X) :=
-  fix F x :=
-    (match (x : list A) with
-     | []     => f (inl $¥bullet$)
-     | h :: t => f (inr (h, F t))
-     end).
-
-Instance listA_initial : (F_initial_algebra F_listA (@listA_hom)
-                                            (list A) listA_eval
-                                            (@listA_cata)) :=
-  {
-  }.
-Proof.
-  - intros X f.
-    extensionality x.
-    induction x.
-    + induction a.
-      easy.
-    + induction b.
-      easy.
-  - intros X f cata' H.
-    extensionality x.
-    induction x.
-    + Right
-      = (cata' nil).
-      = (cata' (listA_eval (inl $¥bullet$))).
-      = ((cata' $¥circ$ listA_eval) (inl $¥bullet$)).
-      = ((f $¥circ$ listA_hom cata') (inl $¥bullet$))  {by H}.
-      = (f (inl $¥bullet$)).
-      = Left.
+    + easy.
+    + easy.
     + simpl.
-      rewrite IHx.
-      @ goal : (f (inr (a, cata' x)) = cata' (a :: x)).
-      Right
-      = (cata' (a :: x)).
-      = ((cata' $¥circ$ listA_eval) (inr (a, x))).
-      = ((f $¥circ$ listA_hom cata') (inr (a, x)))  {by H}.
-      = (f (inr (a, cata' x))).
-      = Left.
-
+      rewrite IHPF1.
+      rewrite IHPF2.
+      repeat rewrite id_is_left_identity.
+      apply pair_id.
+    + simpl.
+      rewrite IHPF1.
+      rewrite IHPF2.
+      extensionality x.
+      rewrite coprod_id;easy.
+  - intros A B C f g.
+    induction PF.
+    + easy.
+    + easy.
+    + easy.
+    + simpl.
+      rewrite IHPF1; rewrite IHPF2.
+      extensionality x.
+      induction x.
+      easy.
+    + simpl.
+      rewrite IHPF1; rewrite IHPF2.
+      extensionality x.
+      induction x.
+      * easy.
+      * easy.
 Qed.
-
-Instance listA_initial :
-  (F_initial_algebra F_listA (@listA_hom) (list A) listA_eval (@listA_cata)) := {}.
-
-initial_fusion : 
-  forall {F : Type -> Type}
-         {Fhom : forall {A B : Type},
-             (A -> B) -> F A -> F B}
-         {I : Type}
-         {eval : F I -> I}
-         {bf : forall (X : Type)
-                      (f : F X -> X),
-             I -> X}
-         {fi : F_initial_algebra
-                 F (fun A B => @Fhom _ _)
-                 I eval bf}
-         {A B : Type}
-         (f : F A -> A)
-         (g : F B -> B)
-         (h : A -> B),
-    h ∘ f = g ∘ F[h]
-    -> h ∘ (|f|) = (|g|).
