@@ -159,7 +159,85 @@ Class Functor (F : Type -> Type)
         Fhom A C (g ∘ f) = (Fhom B C g ∘ Fhom A B f)
   }.
 
+Class BiFunctor (F : Type -> Type -> Type)
+      (Fhom : forall (A B C D : Type), (A -> C) -> (B -> D) -> (F A B) -> (F C D))
+  :=
+    {
+      BFmap := Fhom;
+      BFhom_identity : forall {A B : Type}, BFmap A B A B (@id A) (@id B) = @id (F A B);
+      BFhom_composition : forall {A B C D E G : Type}
+                                 (f : A -> B) (g : B -> C) (h : D -> E) (i : E -> G), 
+          BFmap A D C G (g ∘ f) (i ∘ h) = (BFmap B E C G g i ) ∘ (BFmap A D B E f h)
+    }.
+
 Notation "F [ f ]" := (@Fmap F _ _ _ _ f) (at level 10).
+
+Notation "F [ f , g ]" := (@BFmap F _ _ _ _ _ _ f g) (at level 10).
+
+Inductive Polynominal_Functor :=
+| Top              : Polynominal_Functor
+| Var              : Polynominal_Functor
+| Const (A : Type) : Polynominal_Functor
+| Product          : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor
+| CoProduct        : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor.
+
+Fixpoint Eval_PF (FABS : Polynominal_Functor) (X : Type) : Type :=
+  match FABS with
+  | Top => 1
+  | Var => X
+  | Const A => A
+  | Product F G => Eval_PF F X × Eval_PF G X
+  | CoProduct F G => @Either (Eval_PF F X) (Eval_PF G X)
+  end.
+
+Fixpoint PFhom (F : Polynominal_Functor) {A B : Type} (f : A -> B) : Eval_PF F A ->  Eval_PF F B :=
+  match F with
+  | Top             => (@id 1)
+  | Var             => f
+  | Const C         => (@id C)
+  | Product F' G'   => Pairf ((@PFhom F' A B f) ∘ outl) ((@PFhom G' A B f) ∘ outr)
+  | CoProduct F' G' => (Eitherf (fun x => @inl (Eval_PF F' B) (Eval_PF G' B) (@PFhom F' A B f x))
+                                (fun x => @inr (Eval_PF F' B) (Eval_PF G' B) (@PFhom G' A B f x)))
+                       : Eval_PF (CoProduct F' G') A -> Eval_PF (CoProduct F' G') B
+  end.
+
+Coercion Eval_PF : Polynominal_Functor >-> Funclass.
+
+Instance PF_is_exact_Funcotr :
+  forall PF : Polynominal_Functor, (Functor (Eval_PF PF) (@PFhom PF)) := {}.
+Proof.
+  - intros A.
+    induction PF.
+    + easy.
+    + easy.
+    + easy.
+    + simpl.
+      rewrite IHPF1.
+      rewrite IHPF2.
+      repeat rewrite id_is_left_identity.
+      apply pair_id.
+    + simpl.
+      rewrite IHPF1.
+      rewrite IHPF2.
+      extensionality x.
+      rewrite coprod_id;easy.
+  - intros A B C f g.
+    induction PF.
+    + easy.
+    + easy.
+    + easy.
+    + simpl.
+      rewrite IHPF1; rewrite IHPF2.
+      extensionality x.
+      induction x.
+      easy.
+    + simpl.
+      rewrite IHPF1; rewrite IHPF2.
+      extensionality x.
+      induction x.
+      * easy.
+      * easy.
+Qed.
 
 Hint Resolve Fhom_identity.
 Hint Resolve Fhom_composition.
@@ -270,9 +348,80 @@ Proof.
   = ( F[α] ∘ F[(|F[α]|)] ).
   = ( F[ α ∘(| F[α] |)] )   { by Fhom_composition }.
   = ( F[@id I] )            { by eval_is_iso_l }.
-  = ( @id (F I) )           { by Fhom_identity }.
+  = ( @id (F I) )  { by Fhom_identity }.
   = Right.
 Qed.
+
+Set Reversible Pattern Implicit.
+
+Lemma datamap :
+  forall {F    : Type -> Type -> Type}
+         {Fhom : forall (A B C D : Type), (A -> C) -> (B -> D) -> (F A B) -> (F C D)}
+         {pbf  : BiFunctor F Fhom}
+         {A μA : Type}
+         {inA  : F A μA -> μA}
+         {bfA  : forall (X : Type) (f : F A X -> X), μA -> X }
+         {fiA  : F_initial_algebra (F A) (fun X Y => Fhom A X A Y id) μA inA bfA }
+         {B μB : Type}
+         {inB  : F B μB -> μB}
+         {bfB  : forall (X : Type) (f : F B X -> X), μB -> X }
+         {fiB  : F_initial_algebra (F B) (fun X Y => Fhom B X B Y id) μB inB bfB }
+         {C μC : Type}
+         {inC  : F C μC -> μC}
+         {bfC  : forall (X : Type) (f : F C X -> X), μC -> X }
+         {fiC  : F_initial_algebra (F C) (fun X Y => Fhom C X C Y id) μC inC bfC }
+         {T : Type -> Type},
+    (| inB ∘ F[id, id] |) = id
+    /\ forall (f : A -> B) (g : B -> C),
+      (| inC ∘ F[g ∘ f, id] |) = (| inC ∘ F[g, id] |) ∘ (| inB ∘ F[f, id] |).
+Proof.
+  intros.
+  split.
+  - Left
+    = (|inB ∘ F [id, id]|).
+    = (|inB ∘ id|)  { by BFhom_identity }.
+    = ( @id (μB) )  { rewrite cata_eval_eq_id }.
+    = Right.
+  - intros f g.
+    assert ( (| inC ∘ F[g, id] |)  ∘ inB ∘ F[f, id]
+             = inC ∘ F[g ∘ f, id] ∘ F[ id, (| inC ∘ F[g, id] |) ] ) as H.
+    {
+      Left
+      = ( (| inC ∘ F[g, id] |) ∘ inB ∘ F[f, id] ).
+      = ( ( inC ∘ F[g, id] ) ∘ F[id, (| inC ∘ F[g, id] |) ] ∘ F[f, id] )
+          { by initial_commutativity }.
+      = ( inC ∘ ( F[g, id] ∘ F[id, (| inC ∘ F[g, id] |) ] ) ∘ F[f, id] ).
+      = ( inC ∘ F[g ∘ id, id ∘ (| inC ∘ F[g, id] |) ] ∘ F[f, id] )
+          { by BFhom_composition }.
+      = ( inC ∘ ( F[g ∘ id, id ∘ (| inC ∘ F[g, id] |) ] ∘ F[f, id] ) ).
+      = ( inC ∘ ( F[g, (| inC ∘ F[g, id] |) ] ∘ F[f, id] ) ).
+      = ( inC ∘ ( F[ g ∘ f , (| inC ∘ F[g, id] |) ∘ id ] ) )
+          { by BFhom_composition }.
+      = ( inC ∘ ( F[ (g ∘ f) ∘ id , id ∘ (| inC ∘ F[g, id] |) ] ) ).
+      = ( inC ∘ F[g ∘ f, id] ∘ F[ id, (| inC ∘ F[g, id] |) ] )
+          { by BFhom_composition }.
+      = Right.
+    }
+    apply initial_uniqueness.
+    Right
+    = ( inC ∘ F [g ∘ f, id] ∘ (F A) [(|inC ∘ F [g, id]|) ∘ (|inB ∘ F [f, id]|)] ).
+    = ( inC ∘ F [g ∘ f, id] ∘ (F A) [(|inC ∘ F [g, id]|)] ∘ (F A)[(|inB ∘ F [f, id]|)] )
+        { by Fhom_composition }.
+    = ( inC ∘ F [g ∘ f, id] ∘ F [id, (|inC ∘ F [g, id]|)] ∘ F [id, (|inB ∘ F [f, id]|)] ).
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F [f, id] ∘ F [id, (|inB ∘ F [f, id]|)] )  { by H }.
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F [f ∘ id, id ∘ (|inB ∘ F [f, id]|) ] )
+        { by BFhom_composition }.
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F [f, (|inB ∘ F [f, id]|) ] ).
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F [f ∘ id, id ∘ (|inB ∘ F [f, id]|) ] ).
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F[f, id] ∘ F [id, (|inB ∘ F [f, id]|) ] )
+        { by BFhom_composition }.
+    = ( (|inC ∘ F [g, id]|) ∘ inB ∘ F[f, id] ∘ (F A) [(|inB ∘ F [f, id]|) ] ).
+    = ( (|inC ∘ F [g, id]|) ∘ ( inB ∘ F[f, id] ∘ (F A) [ (|inB ∘ F [f, id]|) ] ) ).
+    = ( (|inC ∘ F [g, id]|) ∘ (|inB ∘ F [f, id]|) ∘ inA )
+        { by initial_commutativity }.
+    = Left.
+Qed.    
+
 
 Theorem banana_split_law :
   forall {F : Type -> Type}
@@ -457,160 +606,3 @@ Section list.
   Definition fold_f (c : A) (f : A -> A -> A) : (list A) -> A :=
     ([ fun (t : 1) => c , fun (p : A × A)  => f (outl p) (outr p) ]) .
 End list.
-
-Definition sum := fold_f nat O plus.
-
-Eval compute in (length nat (cons 10 (cons 2 (cons 3 (cons 12 nil)))) ).
-
-Definition zeros := ⟨ fun (t : nat) => O , fun (t : nat) => O ⟩.
-Definition pluss p := (plus (outl p) (outl (outr p)), S (outr (outr p))).
-
-Print pluss.
-
-Theorem nat_ave :
-  ⟨ sum , length nat ⟩ = (| ⟨ zeros , pluss ⟩ |).
-  
-
-
-Require Import Coq.Sorting.Heap.
-Section Tree.
-  Variable A : Type.
-  
-  Definition F_treeA (X : Type) := 1 + (A × X × X).
-  
-  Definition treeA_hom {X Y : Type} (f : X -> Y) (x : F_treeA X) : F_treeA Y
-    := match x with
-       | inl ●  => inl ●
-       | inr x' => inr ((outl (outl x'), (f (outr (outl x'))), (f (outr x'))))
-       end.
-  
-  Instance treeA_functor : Functor F_treeA (@treeA_hom) :=
-    {}.
-  Proof.
-    - intros A0.
-      extensionality x.
-      induction x.
-      + induction a.
-        easy.
-      + induction b; induction x.
-        easy.
-    - intros A0 B C f g.
-      extensionality x.
-      induction x.
-      + induction a.
-        easy.
-      + easy.
-  Qed.
-
-  Definition treeA_eval :=     
-    fun (x : F_treeA (Tree A)) =>
-      match x with
-      | inl ●  => @Tree_Leaf A
-      | inr x' => @Tree_Node A (outl (outl x')) (outr (outl x')) (outr x')
-      end.
-
-  Definition treeA_cata {X : Type} (f : F_treeA X -> X) :=     
-    fix F x :=
-      (match (x : Tree A) with
-       | Tree_Leaf _         => f (inl ●)
-       | Tree_Node _ a T1 T2 => f (inr (a, F T1, F T2))
-       end).
-
-  Instance treeA_initial : (F_initial_algebra F_treeA (@treeA_hom) (Tree A) treeA_eval (@treeA_cata)) :=
-    {
-    }.
-  Proof.
-    - intros X f.
-      extensionality x.
-      induction x.
-      + induction a; easy.
-      + induction b; easy.
-    - intros X f cata' H.
-      extensionality x.
-      induction x.
-      + Right
-        = (cata' (Tree_Leaf A)).
-        = (cata' (treeA_eval (inl ●))).
-        = ((cata' ∘ treeA_eval) (inl ●)).
-        = ((f ∘ treeA_hom cata') (inl ●))  {by H}.
-        = (f (inl ●)).
-        = Left.
-      + simpl.
-        rewrite IHx1, IHx2.
-        @ goal : (f (inr (a, cata' x1, cata' x2)) = cata' (Tree_Node A a x1 x2)).
-        Right
-        = (cata' (Tree_Node A a x1 x2)).
-        = ((cata' ∘ treeA_eval) (inr (a, x1, x2))).
-        = ((f ∘ treeA_hom cata') (inr (a, x1, x2)))  {by H}.
-        = (f (inr (a, cata' x1, cata' x2))).
-        = Left.
-  Qed.
-End Tree.
-
-(* Under Constructions *)
-
-
-Inductive Polynominal_Functor :=
-| Top              : Polynominal_Functor
-| Var              : Polynominal_Functor
-| Const (A : Type) : Polynominal_Functor
-| Product          : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor
-| CoProduct        : Polynominal_Functor -> Polynominal_Functor -> Polynominal_Functor.
-
-Fixpoint Eval_PF (FABS : Polynominal_Functor) (X : Type) : Type :=
-  match FABS with
-  | Top => 1
-  | Var => X
-  | Const A => A
-  | Product F G => Eval_PF F X × Eval_PF G X
-  | CoProduct F G => @Either (Eval_PF F X) (Eval_PF G X)
-  end.
-
-Fixpoint PFhom (F : Polynominal_Functor) {A B : Type} (f : A -> B) : Eval_PF F A ->  Eval_PF F B :=
-  match F with
-  | Top             => (@id 1)
-  | Var             => f
-  | Const C         => (@id C)
-  | Product F' G'   => Pairf ((@PFhom F' A B f) ∘ outl) ((@PFhom G' A B f) ∘ outr)
-  | CoProduct F' G' => (Eitherf (fun x => @inl (Eval_PF F' B) (Eval_PF G' B) (@PFhom F' A B f x))
-                                (fun x => @inr (Eval_PF F' B) (Eval_PF G' B) (@PFhom G' A B f x)))
-                       : Eval_PF (CoProduct F' G') A -> Eval_PF (CoProduct F' G') B
-  end.
-
-Coercion Eval_PF : Polynominal_Functor >-> Funclass.
-
-Instance PF_is_exact_Funcotr :
-  forall PF : Polynominal_Functor, (Functor (Eval_PF PF) (@PFhom PF)) := {}.
-Proof.
-  - intros A.
-    induction PF.
-    + easy.
-    + easy.
-    + easy.
-    + simpl.
-      rewrite IHPF1.
-      rewrite IHPF2.
-      repeat rewrite id_is_left_identity.
-      apply pair_id.
-    + simpl.
-      rewrite IHPF1.
-      rewrite IHPF2.
-      extensionality x.
-      rewrite coprod_id;easy.
-  - intros A B C f g.
-    induction PF.
-    + easy.
-    + easy.
-    + easy.
-    + simpl.
-      rewrite IHPF1; rewrite IHPF2.
-      extensionality x.
-      induction x.
-      easy.
-    + simpl.
-      rewrite IHPF1; rewrite IHPF2.
-      extensionality x.
-      induction x.
-      * easy.
-      * easy.
-Qed.
